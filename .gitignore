@@ -1,6 +1,8 @@
+# Переменные окружения
 .env
 .env.local
 
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,19 +10,33 @@ __pycache__/
 venv/
 *.egg-info/
 
+# Node.js
 node_modules/
 dist/
 build/
 .vite/
 
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
+# OS
 .DS_Store
 Thumbs.db
 
-postgres_data/
-elastic_data/
-redis_data/
+# Логи
+*.log
+
+# Загруженные пользователями файлы
+uploads/
+
+# Тесты
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Базы данных (для тестов)
+*.db
+*.sqlite3
