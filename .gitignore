@@ -40,3 +40,24 @@ htmlcov/
 # Базы данных (для тестов)
 *.db
 *.sqlite3
+
+# Docker volumes
+postgres_data/
+elastic_data/
+redis_data/
+
+# Coverage reports
+coverage/
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Environment overrides
+.env.*.local
+
+# OS specific
+*~
+.DS_Store
