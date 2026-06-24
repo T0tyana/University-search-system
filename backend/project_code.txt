@@ -1,0 +1,773 @@
+
+==================================================
+FILE: app\main.py
+==================================================
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
+from app.api.v1 import documents, auth
+from app.services.elasticsearch_service import create_index
+from app.models.database import engine, Base
+
+app = FastAPI(
+    title=settings.APP_NAME, 
+    version=settings.APP_VERSION,
+    description="Интеллектуальная поисковая система по базе знаний университета"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup_event():
+    """Инициализация БД и Elasticsearch при запуске приложения."""
+    # Создаем таблицы в БД
+    Base.metadata.create_all(bind=engine)
+    print("Database tables created.")
+    
+    # Создаем индекс в ES
+    try:
+        create_index()
+        print("Elasticsearch index 'documents' is ready.")
+    except Exception as e:
+        print(f"Error connecting to Elasticsearch: {e}")
+
+# Подключаем роутеры
+app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
+app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
+
+@app.get("/", summary="Health Check")
+def read_root():
+    """Проверка доступности сервиса."""
+    return {"status": "ok"}
+==================================================
+FILE: app\__init__.py
+==================================================
+
+
+==================================================
+FILE: app\api\__init__.py
+==================================================
+
+
+==================================================
+FILE: app\api\v1\auth.py
+==================================================
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+from app.models.database import get_db
+from app.models.user import User
+from app.services.auth_service import verify_password, get_password_hash, create_access_token
+from pydantic import BaseModel
+
+router = APIRouter()
+
+class UserCreate(BaseModel):
+    """Модель для регистрации нового пользователя."""
+    username: str
+    password: str
+
+@router.post("/register", summary="Регистрация пользователя")
+async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    """
+    Регистрирует нового пользователя в системе.
+    
+    Args:
+        user_data: Данные для регистрации (username, password).
+        db: Сессия базы данных.
+        
+    Returns:
+        Сообщение об успешной регистрации.
+        
+    Raises:
+        HTTPException: 400 Bad Request, если имя пользователя занято.
+    """
+    db_user = db.query(User).filter(User.username == user_data.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    new_user = User(username=user_data.username, hashed_password=get_password_hash(user_data.password))
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"msg": "User created successfully"}
+
+@router.post("/login", summary="Авторизация пользователя")
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """
+    Авторизует пользователя и выдает JWT токен.
+    
+    Args:
+        form_data: Форма входа (username, password).
+        db: Сессия базы данных.
+        
+    Returns:
+        access_token и token_type.
+        
+    Raises:
+        HTTPException: 401 Unauthorized, если логин или пароль неверны.
+    """
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    
+    access_token = create_access_token(data={"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+==================================================
+FILE: app\api\v1\documents.py
+==================================================
+
+import os
+import uuid
+import json
+import redis
+from datetime import datetime
+from typing import Optional
+from app.services.elasticsearch_service import index_chunks, get_all_documents, es_client
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
+from app.models.schemas import (
+    UploadResponse, SearchResponse, SearchResult, 
+    DocumentListResponse, DocumentInfo, SearchHistoryResponse
+)
+from app.core.config import settings
+from app.services.document_processor import process_document
+from app.services.auth_service import get_current_user
+from app.models.user import User
+
+router = APIRouter()
+
+# Безопасная инициализация Redis
+try:
+    redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client.ping()
+except Exception:
+    redis_client = None
+    print("Warning: Redis unavailable. Caching and History disabled.")
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_EXTENSIONS = {"pdf", "docx"}
+MAX_SIZE = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+
+@router.post("/documents/upload", response_model=UploadResponse, summary="Загрузка документа")
+async def upload_document(
+    file: UploadFile = File(..., description="Файл PDF или DOCX"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Загружает файл, валидирует его, сохраняет и индексирует в Elasticsearch.
+    Требует авторизации.
+    
+    Args:
+        file: Загружаемый файл.
+        current_user: Текущий авторизованный пользователь.
+        
+    Returns:
+        Информация о загруженном файле (file_id, file_name, status).
+        
+    Raises:
+        HTTPException: 400 Bad Request (неверный формат/размер), 500 Internal Server Error (ошибка обработки).
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is missing")
+        
+    file_ext = file.filename.split(".")[-1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Неподдерживаемый формат. Только {ALLOWED_EXTENSIONS}")
+
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=400, detail=f"Файл слишком большой. Максимум {settings.MAX_FILE_SIZE_MB} МБ")
+
+    file_id = str(uuid.uuid4())
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}.{file_ext}")
+    
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    try:
+        chunks_with_meta = process_document(file_id, file_ext)
+        if not chunks_with_meta:
+             raise HTTPException(status_code=400, detail="Не удалось извлечь текст из файла")
+        
+        index_chunks(file_id, file.filename, chunks_with_meta)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при обработке файла: {str(e)}")
+
+    return UploadResponse(file_id=file_id, file_name=file.filename, status="indexed")
+
+@router.get("/search", response_model=SearchResponse, summary="Поиск по документам")
+async def search_documents(
+    q: str = Query(..., min_length=1, description="Поисковый запрос"),
+    file_name: Optional[str] = Query(None, description="Фильтр по имени файла"),
+    page: int = Query(1, ge=1, description="Номер страницы результатов"),
+    size: int = Query(10, ge=1, le=100, description="Количество результатов на странице"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Выполняет полнотекстовый поиск в Elasticsearch с кешированием в Redis.
+    Требует авторизации.
+    
+    Args:
+        q: Текст запроса.
+        file_name: Опциональный фильтр по названию файла.
+        page: Номер страницы пагинации.
+        size: Размер страницы.
+        current_user: Текущий авторизованный пользователь.
+        
+    Returns:
+        Результаты поиска с метаданными и оценкой релевантности.
+        
+    Raises:
+        HTTPException: 500 Internal Server Error при ошибке Elasticsearch.
+    """
+    # Безопасная работа с Redis (кеш + история)
+    if redis_client:
+        cache_key = f"search:{q}:{file_name}:{page}:{size}"
+        try:
+            cached_result = redis_client.get(cache_key)
+            if cached_result:
+                return SearchResponse(**json.loads(cached_result))
+        except Exception:
+            pass
+
+    try:
+        from_val = (page - 1) * size
+        query_body = {
+            "from": from_val,
+            "size": size,
+            "query": {
+                "bool": {
+                    "must": [{"multi_match": {"query": q, "fields": ["text"]}}]
+                }
+            }
+        }
+        
+        if file_name:
+            query_body["query"]["bool"]["filter"] = [
+                {"term": {"file_name.keyword": file_name}}
+            ]
+
+        response = es_client.search(index="documents", body=query_body)
+        hits = response['hits']['hits']
+        total_hits = response['hits']['total']['value']
+        
+        results = [
+            SearchResult(
+                chunk_id=h['_source']['chunk_id'],
+                file_name=h['_source']['file_name'],
+                page=h['_source']['page_number'],
+                text=h['_source']['text'],
+                score=h['_score']
+            ) for h in hits
+        ]
+        
+        final_response = SearchResponse(query=q, results=results, total=total_hits, page=page, size=size)
+        
+        # Сохраняем в кеш и историю ТОЛЬКО если Redis жив
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, json.dumps(final_response.dict()))
+                
+                # Персональная история поиска
+                history_key = f"user_history:{current_user.username}"
+                history_item = {"query": q, "timestamp": datetime.now().isoformat()}
+                redis_client.lpush(history_key, json.dumps(history_item))
+                redis_client.ltrim(history_key, 0, 99)
+            except Exception:
+                pass
+                
+        return final_response
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка поиска: {str(e)}")
+
+@router.get("/documents", response_model=DocumentListResponse, summary="Список документов")
+async def list_documents():
+    """
+    Возвращает список всех уникальных имен файлов, проиндексированных в системе.
+    
+    Returns:
+        Список объектов DocumentInfo.
+    """
+    files = get_all_documents()
+    docs = [DocumentInfo(file_name=f) for f in files]
+    return DocumentListResponse(documents=docs)
+
+@router.get("/search/history", response_model=SearchHistoryResponse, summary="История поиска")
+async def get_search_history(current_user: User = Depends(get_current_user)):
+    """
+    Возвращает персональную историю поисковых запросов текущего пользователя.
+    Требует авторизации.
+    
+    Args:
+        current_user: Текущий авторизованный пользователь.
+        
+    Returns:
+        Список элементов истории поиска.
+    """
+    if not redis_client:
+        return SearchHistoryResponse(history=[])
+        
+    try:
+        # Читаем ПЕРСОНАЛЬНУЮ историю
+        history_key = f"user_history:{current_user.username}"
+        items = redis_client.lrange(history_key, 0, -1)
+        history = [json.loads(item) for item in items]
+        return SearchHistoryResponse(history=history)
+    except Exception:
+        return SearchHistoryResponse(history=[])
+==================================================
+FILE: app\api\v1\__init__.py
+==================================================
+
+
+==================================================
+FILE: app\core\config.py
+==================================================
+
+import secrets
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    """Настройки приложения, загружаемые из переменных окружения."""
+    APP_NAME: str = "University Knowledge Search"
+    APP_VERSION: str = "0.1.0"
+    
+    # База данных и сервисы
+    DATABASE_URL: str = "postgresql://university_user:university_pass@localhost:5432/knowledge_db"
+    ELASTICSEARCH_URL: str = "http://localhost:9200"
+    REDIS_URL: str = "redis://localhost:6379/0"
+    
+    # Безопасность JWT
+    SECRET_KEY: str = secrets.token_urlsafe(32)
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    # Бизнес-логика
+    MAX_FILE_SIZE_MB: int = 20
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 100
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
+
+settings = Settings()
+==================================================
+FILE: app\core\__init__.py
+==================================================
+
+
+==================================================
+FILE: app\models\database.py
+==================================================
+
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
+
+engine = create_engine(settings.DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    """Генератор сессии базы данных для зависимостей FastAPI."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+==================================================
+FILE: app\models\schemas.py
+==================================================
+
+from pydantic import BaseModel, Field
+from typing import List
+from datetime import datetime
+
+class UploadResponse(BaseModel):
+    """Модель ответа после успешной загрузки файла."""
+    file_id: str = Field(..., description="Уникальный идентификатор файла (UUID)")
+    file_name: str = Field(..., description="Оригинальное имя файла")
+    status: str = Field("indexed", description="Статус обработки файла")
+
+class SearchResult(BaseModel):
+    """Модель отдельного результата поиска."""
+    chunk_id: str = Field(..., description="ID фрагмента текста")
+    file_name: str = Field(..., description="Название документа")
+    page: int = Field(..., description="Номер страницы в документе")
+    text: str = Field(..., description="Найденный фрагмент текста")
+    score: float = Field(..., description="Оценка релевантности от Elasticsearch")
+
+class SearchResponse(BaseModel):
+    """Модель ответа эндпоинта поиска."""
+    query: str = Field(..., description="Поисковый запрос")
+    results: List[SearchResult] = Field(default_factory=list)
+    total: int = Field(..., description="Общее количество найденных совпадений")
+    page: int = Field(..., description="Текущая страница результатов")
+    size: int = Field(..., description="Количество результатов на странице")
+
+class DocumentInfo(BaseModel):
+    """Информация о загруженном документе."""
+    file_name: str = Field(..., description="Название файла")
+    upload_date: datetime = Field(default_factory=datetime.now, description="Дата загрузки") 
+
+class DocumentListResponse(BaseModel):
+    """Список всех документов в системе."""
+    documents: List[DocumentInfo] = Field(..., description="Список документов")
+
+class SearchHistoryItem(BaseModel):
+    """Элемент истории поиска."""
+    query: str = Field(..., description="Текст поискового запроса")
+    timestamp: datetime = Field(..., description="Время выполнения запроса")
+
+class SearchHistoryResponse(BaseModel):
+    """История поисковых запросов пользователя."""
+    history: List[SearchHistoryItem] = Field(..., description="Список элементов истории")
+==================================================
+FILE: app\models\user.py
+==================================================
+
+from sqlalchemy import Column, Integer, String
+from app.models.database import Base
+
+class User(Base):
+    """Модель пользователя для авторизации."""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+==================================================
+FILE: app\models\__init__.py
+==================================================
+
+
+==================================================
+FILE: app\services\auth_service.py
+==================================================
+
+from datetime import datetime, timedelta
+from jose import jwt, JWTError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+import bcrypt
+from app.core.config import settings
+from app.models.database import get_db
+from app.models.user import User
+from sqlalchemy.orm import Session
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Проверяет соответствие пароля хешу.
+    
+    Args:
+        plain_password: Пароль в открытом виде.
+        hashed_password: Хеш пароля из БД.
+        
+    Returns:
+        True, если пароль верен, иначе False.
+    """
+    return bcrypt.checkpw(
+        plain_password.encode('utf-8'), 
+        hashed_password.encode('utf-8')
+    )
+
+def get_password_hash(password: str) -> str:
+    """
+    Генерирует хеш пароля с использованием bcrypt.
+    
+    Args:
+        password: Пароль в открытом виде.
+        
+    Returns:
+        Захешированная строка пароля.
+    """
+    pwd_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password=pwd_bytes, salt=salt).decode('utf-8')
+
+def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+    """
+    Создает JWT токен доступа.
+    
+    Args:
+        data: Данные для включения в payload токена.
+        expires_delta: Время жизни токена. По умолчанию берется из настроек.
+        
+    Returns:
+        Строка JWT токена.
+    """
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+    """
+    Получает текущего пользователя из JWT токена.
+    
+    Args:
+        token: JWT токен из заголовка Authorization.
+        db: Сессия базы данных.
+        
+    Returns:
+        Объект модели User.
+        
+    Raises:
+        HTTPException: 401 Unauthorized, если токен невалиден или пользователь не найден.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+        
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
+==================================================
+FILE: app\services\document_processor.py
+==================================================
+
+import os
+import pdfplumber
+from docx import Document
+from app.core.config import settings
+
+def extract_text_from_pdf(file_path: str) -> list[tuple[str, int]]:
+    """
+    Извлекает текст из PDF файла постранично.
+    
+    Args:
+        file_path: Путь к файлу PDF.
+        
+    Returns:
+        Список кортежей (текст_страницы, номер_страницы).
+    """
+    pages_data = []
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for i, page in enumerate(pdf.pages, start=1):
+                page_text = page.extract_text()
+                if page_text:
+                    clean_text = " ".join(page_text.split())
+                    if clean_text:
+                        pages_data.append((clean_text, i))
+    except Exception as e:
+        raise Exception(f"Error parsing PDF {file_path}: {str(e)}")
+    return pages_data
+
+def extract_text_from_docx(file_path: str) -> list[tuple[str, int]]:
+    """
+    Извлекает текст из DOCX файла.
+    
+    Args:
+        file_path: Путь к файлу DOCX.
+        
+    Returns:
+        Список кортежей (весь_текст, 1).
+    """
+    try:
+        doc = Document(file_path)
+        full_text = [para.text for para in doc.paragraphs if para.text.strip()]
+        text = '\n'.join(full_text)
+        return [(text, 1)] if text else []
+    except Exception as e:
+        raise Exception(f"Error parsing DOCX {file_path}: {str(e)}")
+
+def split_text_into_chunks(text: str, chunk_size: int = None, overlap: int = None) -> list[str]:
+    """
+    Разбивает текст на чанки заданного размера с перекрытием.
+    
+    Args:
+        text: Исходный текст.
+        chunk_size: Размер чанка в символах.
+        overlap: Количество символов перекрытия.
+        
+    Returns:
+        Список текстовых чанков.
+    """
+    chunk_size = chunk_size or settings.CHUNK_SIZE
+    overlap = overlap or settings.CHUNK_OVERLAP
+    
+    chunks = []
+    start = 0
+    text_len = len(text)
+    
+    while start < text_len:
+        end = start + chunk_size
+        chunk = text[start:end]
+        if chunk.strip():
+            chunks.append(chunk)
+        start += (chunk_size - overlap)
+    return chunks
+
+def process_document(file_id: str, file_ext: str) -> list[dict]:
+    """
+    Основной процессор документа: извлечение, очистка и чанкинг.
+    
+    Args:
+        file_id: UUID файла.
+        file_ext: Расширение файла (pdf/docx).
+        
+    Returns:
+        Список словарей с ключами 'text' и 'page_number'.
+    """
+    upload_dir = "uploads"
+    file_path = os.path.join(upload_dir, f"{file_id}.{file_ext}")
+    
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File {file_id}.{file_ext} not found")
+        
+    pages_data = []
+    if file_ext == "pdf":
+        pages_data = extract_text_from_pdf(file_path)
+    elif file_ext == "docx":
+        pages_data = extract_text_from_docx(file_path)
+    else:
+        raise ValueError("Unsupported file format")
+        
+    final_chunks = []
+    for page_text, page_num in pages_data:
+        page_chunks = split_text_into_chunks(page_text)
+        for chunk_text in page_chunks:
+            final_chunks.append({
+                "text": chunk_text,
+                "page_number": page_num
+            })
+    return final_chunks
+==================================================
+FILE: app\services\elasticsearch_service.py
+==================================================
+
+from elasticsearch import Elasticsearch
+from app.core.config import settings
+import uuid
+
+es_client = Elasticsearch([settings.ELASTICSEARCH_URL])
+INDEX_NAME = "documents"
+
+def create_index():
+    """
+    Создает индекс documents с русским анализатором и корректным маппингом.
+    
+    Returns:
+        True, если индекс создан или уже существует.
+    """
+    if es_client.indices.exists(index=INDEX_NAME):
+        return True
+        
+    mapping = {
+        "settings": {
+            "analysis": {
+                "analyzer": {
+                    "russian_analyzer": {
+                        "type": "custom",
+                        "tokenizer": "standard",
+                        "filter": ["lowercase", "russian_stop", "russian_stemmer"]
+                    }
+                },
+                "filter": {
+                    "russian_stop": {"type": "stop", "stopwords": "_russian_"},
+                    "russian_stemmer": {"type": "stemmer", "language": "russian"}
+                }
+            }
+        },
+        "mappings": {
+            "properties": {
+                "file_id": {"type": "keyword"},
+                # Явное определение keyword-подполя для агрегаций
+                "file_name": {
+                    "type": "text",
+                    "fields": {
+                        "keyword": {"type": "keyword"}
+                    }
+                },
+                "page_number": {"type": "integer"},
+                "chunk_id": {"type": "keyword"},
+                "text": {"type": "text", "analyzer": "russian_analyzer"}
+            }
+        }
+    }
+    try:
+        es_client.indices.create(index=INDEX_NAME, body=mapping)
+        print(f"Index '{INDEX_NAME}' created with correct mapping.")
+        return True
+    except Exception as e:
+        print(f"Error creating index: {e}")
+        return False
+
+def index_chunks(file_id: str, file_name: str, chunks_with_meta: list[dict]):
+    """
+    Индексирует чанки документа в Elasticsearch с немедленным обновлением.
+    
+    Args:
+        file_id: UUID файла.
+        file_name: Имя файла.
+        chunks_with_meta: Список чанков с метаданными.
+    """
+    operations = []
+    for item in chunks_with_meta:
+        doc = {
+            "file_id": file_id,
+            "file_name": file_name,
+            "page_number": item['page_number'],
+            "chunk_id": str(uuid.uuid4()),
+            "text": item['text']
+        }
+        operations.append({"index": {"_index": INDEX_NAME}})
+        operations.append(doc)
+        
+    if operations:
+        # refresh=True делает данные доступными для поиска синхронно
+        es_client.bulk(operations=operations, refresh=True) 
+
+def get_all_documents() -> list[str]:
+    """
+    Получает список уникальных имен файлов из индекса Elasticsearch.
+    
+    Returns:
+        Список строк с названиями файлов.
+    """
+    try:
+        response = es_client.search(
+            index=INDEX_NAME,
+            body={
+                "size": 0,
+                "aggs": {
+                    "unique_files": {
+                        "terms": {"field": "file_name.keyword", "size": 1000}
+                    }
+                }
+            }
+        )
+        buckets = response.get('aggregations', {}).get('unique_files', {}).get('buckets', [])
+        return [b['key'] for b in buckets]
+    except Exception as e:
+        print(f"Error getting document list: {e}")
+        return []
+==================================================
+FILE: app\services\__init__.py
+==================================================
+
