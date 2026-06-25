@@ -27,7 +27,7 @@ services:
         max-file: "3"
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: university_elasticsearch
     restart: unless-stopped
     environment:
@@ -129,30 +129,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # qa:
-  #   build:
-  #     context: ./tests/e2e
-  #     dockerfile: Dockerfile
-  #   container_name: university_qa_tests
-  #   environment:
-  #     - BASE_URL=http://front:80
-  #     - API_URL=http://app:8000
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     - app
-  #     - front
-  #   profiles:
-  #     - testing
-  #   volumes:
-  #     - ./tests/e2e/results:/app/test-results
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-
+        
 volumes:
   postgres_data:
     driver: local
