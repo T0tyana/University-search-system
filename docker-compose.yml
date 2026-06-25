@@ -82,57 +82,53 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # app:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   container_name: university_backend
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - DATABASE_URL=${DATABASE_URL}
-  #     - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
-  #     - REDIS_URL=${REDIS_URL}
-  #     - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
-  #     - CHUNK_SIZE=${CHUNK_SIZE}
-  #     - CHUNK_OVERLAP=${CHUNK_OVERLAP}
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - uploads_data:/app/uploads
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     elasticsearch:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: university_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - backend_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # front:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: university_frontend
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:80"
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     - app
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
+  front:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+        - VITE_APP_TITLE=${VITE_APP_TITLE}
+    container_name: university_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - backend_network
+    depends_on:
+      - app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # qa:
   #   build:
