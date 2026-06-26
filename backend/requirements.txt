@@ -1,10 +1,29 @@
-﻿fastapi==0.115.0
+﻿# Web framework
+fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
-pydantic-settings==2.4.0
+
+# Settings & validation
+pydantic==2.10.0
+pydantic-settings==2.6.1
+
+# Database - psycopg v3 (современный драйвер для PostgreSQL)
+sqlalchemy==2.0.36
+psycopg[binary]==3.3.4
+
+# Document processing
 pdfplumber==0.11.4
 python-docx==1.1.2
+chardet==5.2.0
+
+# Search & Cache
 elasticsearch==8.15.0
 redis==5.0.8
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.0
+
+# Utils
 uuid6==2024.7.10
-chardet==5.2.0

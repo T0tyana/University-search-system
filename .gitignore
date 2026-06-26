@@ -61,3 +61,5 @@ coverage/
 # OS specific
 *~
 .DS_Store
+project_partser.py
+project_structure_dump.txt
