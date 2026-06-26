@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
   TextField,
   Button,
   Checkbox,
@@ -9,9 +8,11 @@ import {
   Paper,
   InputAdornment,
   IconButton,
+  Box,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import '../styles/global.css';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,19 +47,8 @@ export const LoginPage: React.FC = () => {
   const handleClickShowPassword = () => setShowPassword(!showPassword);
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        backgroundColor: '#e6f4ff',
-        position: 'relative',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        px: 2,
-      }}
-    >
-      {/* Кнопка перехода на регистрацию */}
+    <Box className="auth-container">
+      {/* Кнопка перехода - возвращаем sx вместо className */}
       <Button
         onClick={() => navigate('/register')}
         sx={{
@@ -83,17 +73,7 @@ export const LoginPage: React.FC = () => {
         Регистрация
       </Button>
 
-      {/* Форма авторизации */}
-      <Paper
-        elevation={3}
-        sx={{
-          width: '100%',
-          maxWidth: 400,
-          p: 5,
-          borderRadius: 4,
-          backgroundColor: '#ffffff',
-        }}
-      >
+      <Paper className="auth-paper" elevation={0}>
         <Typography
           variant="h5"
           component="h1"
@@ -116,9 +96,7 @@ export const LoginPage: React.FC = () => {
           onChange={(e) => setLogin(e.target.value)}
           sx={{
             mb: 3,
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-            },
+            '& .MuiOutlinedInput-root': { borderRadius: 2 },
           }}
         />
 
@@ -136,12 +114,7 @@ export const LoginPage: React.FC = () => {
                   <IconButton
                     onClick={handleClickShowPassword}
                     edge="end"
-                    sx={{
-                      color: '#757575',
-                      '&:hover': {
-                        color: '#0288D1',
-                      },
-                    }}
+                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
                   >
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -151,9 +124,7 @@ export const LoginPage: React.FC = () => {
           }}
           sx={{
             mb: 2,
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-            },
+            '& .MuiOutlinedInput-root': { borderRadius: 2 },
           }}
         />
 
@@ -164,22 +135,15 @@ export const LoginPage: React.FC = () => {
               onChange={(e) => setRememberMe(e.target.checked)}
               sx={{
                 color: '#9e9e9e',
-                '&.Mui-checked': {
-                  color: '#757575',
-                },
-                '& .MuiSvgIcon-root': {
-                  opacity: 0.6,
-                },
+                '&.Mui-checked': { color: '#757575' },
+                '& .MuiSvgIcon-root': { opacity: 0.6 },
               }}
             />
           }
           label="Запомнить меня"
           sx={{
             mb: 4,
-            '& .MuiTypography-root': {
-              fontSize: '14px',
-              color: '#757575',
-            },
+            '& .MuiTypography-root': { fontSize: '14px', color: '#757575' },
           }}
         />
 
@@ -201,10 +165,7 @@ export const LoginPage: React.FC = () => {
               backgroundColor: '#8557e6',
               boxShadow: '0 6px 16px rgba(153, 105, 247, 0.4)',
             },
-            '&:disabled': {
-              backgroundColor: '#B0BEC5',
-              boxShadow: 'none',
-            },
+            '&:disabled': { backgroundColor: '#B0BEC5', boxShadow: 'none' },
           }}
         >
           Войти

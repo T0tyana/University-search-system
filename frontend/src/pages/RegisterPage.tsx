@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import {
-  Box,
   TextField,
   Button,
   Typography,
   Paper,
   InputAdornment,
   IconButton,
+  Box,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import '../styles/global.css';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
@@ -31,19 +32,8 @@ export const RegisterPage: React.FC = () => {
   const handleClickShowConfirmPassword = () => setShowConfirmPassword(!showConfirmPassword);
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        backgroundColor: '#e6f4ff',
-        position: 'relative',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        px: 2,
-      }}
-    >
-      {/* Кнопка перехода на авторизацию */}
+    <Box className="auth-container">
+      {/* Кнопка перехода - возвращаем sx вместо className */}
       <Button
         onClick={() => navigate('/login')}
         sx={{
@@ -68,17 +58,7 @@ export const RegisterPage: React.FC = () => {
         Авторизация
       </Button>
 
-      {/* Форма регистрации */}
-      <Paper
-        elevation={3}
-        sx={{
-          width: '100%',
-          maxWidth: 400,
-          p: 5,
-          borderRadius: 4,
-          backgroundColor: '#ffffff',
-        }}
-      >
+      <Paper className="auth-paper" elevation={0}>
         <Typography
           variant="h5"
           component="h1"
@@ -101,9 +81,7 @@ export const RegisterPage: React.FC = () => {
           onChange={(e) => setLogin(e.target.value)}
           sx={{
             mb: 3,
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-            },
+            '& .MuiOutlinedInput-root': { borderRadius: 2 },
           }}
         />
 
@@ -121,12 +99,7 @@ export const RegisterPage: React.FC = () => {
                   <IconButton
                     onClick={handleClickShowPassword}
                     edge="end"
-                    sx={{
-                      color: '#757575',
-                      '&:hover': {
-                        color: '#0288D1',
-                      },
-                    }}
+                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
                   >
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -136,9 +109,7 @@ export const RegisterPage: React.FC = () => {
           }}
           sx={{
             mb: 3,
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-            },
+            '& .MuiOutlinedInput-root': { borderRadius: 2 },
           }}
         />
 
@@ -162,12 +133,7 @@ export const RegisterPage: React.FC = () => {
                   <IconButton
                     onClick={handleClickShowConfirmPassword}
                     edge="end"
-                    sx={{
-                      color: '#757575',
-                      '&:hover': {
-                        color: '#0288D1',
-                      },
-                    }}
+                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
                   >
                     {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -177,9 +143,7 @@ export const RegisterPage: React.FC = () => {
           }}
           sx={{
             mb: 4,
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-            },
+            '& .MuiOutlinedInput-root': { borderRadius: 2 },
           }}
         />
 
@@ -201,10 +165,7 @@ export const RegisterPage: React.FC = () => {
               backgroundColor: '#07c4bc',
               boxShadow: '0 6px 16px rgba(8, 218, 208, 0.4)',
             },
-            '&:disabled': {
-              backgroundColor: '#B0BEC5',
-              boxShadow: 'none',
-            },
+            '&:disabled': { backgroundColor: '#B0BEC5', boxShadow: 'none' },
           }}
         >
           Зарегистрироваться
