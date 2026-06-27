@@ -61,3 +61,8 @@ coverage/
 # OS specific
 *~
 .DS_Store
+
+# Тестовые данные и логи скрипта инициализации
+test_pdfs/
+init.log
+/tmp/upload_response.txt
