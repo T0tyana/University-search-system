@@ -112,9 +112,17 @@ export const HomePage: React.FC = () => {
         }}
       >
         {/* Поисковая строка — почти на всю ширину */}
-        <Box sx={{ mb: 3 }}>
-          <SearchBar onSearch={handleSearch} searchHistory={searchHistory} />
-        </Box>
+          <Box 
+            sx={{ 
+              mb: 3, 
+              display: 'flex', 
+              justifyContent: 'center' 
+            }}
+          >
+            <Box sx={{ width: '100%', maxWidth: '800px' }}>
+              <SearchBar onSearch={handleSearch} searchHistory={searchHistory} />
+            </Box>
+          </Box>
 
         {/* Drag-and-drop зона — широкая и низкая */}
         <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
