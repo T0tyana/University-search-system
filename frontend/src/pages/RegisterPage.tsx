@@ -7,9 +7,12 @@ import {
   InputAdornment,
   IconButton,
   Box,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { registerApi } from '../api/auth';
 import '../styles/global.css';
 
 export const RegisterPage: React.FC = () => {
@@ -19,21 +22,44 @@ export const RegisterPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
+    setError(null);
+    setSuccess(null);
+
     if (password !== confirmPassword) {
-      alert('Пароли не совпадают!');
+      setError('Пароли не совпадают');
       return;
     }
-    navigate('/home');
+
+    setLoading(true);
+    try {
+      await registerApi({ username: login, password });
+      setSuccess('Регистрация успешна! Перенаправляем на вход...');
+      // Через секунду ведём на логин
+      setTimeout(() => navigate('/login'), 1000);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ||
+        err?.response?.data?.msg ||
+        'Ошибка регистрации';
+      setError(typeof msg === 'string' ? msg : 'Ошибка регистрации');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleClickShowPassword = () => setShowPassword(!showPassword);
   const handleClickShowConfirmPassword = () => setShowConfirmPassword(!showConfirmPassword);
 
+  const isDisabled =
+    !login || !password || !confirmPassword || password !== confirmPassword || loading;
+
   return (
     <Box className="auth-container">
-      {/* Кнопка перехода - возвращаем sx вместо className */}
       <Button
         onClick={() => navigate('/login')}
         sx={{
@@ -49,29 +75,20 @@ export const RegisterPage: React.FC = () => {
           fontWeight: 500,
           px: 3,
           py: 1,
-          '&:hover': {
-            backgroundColor: '#E3F2FD',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          },
+          '&:hover': { backgroundColor: '#E3F2FD' },
         }}
       >
         Авторизация
       </Button>
 
       <Paper className="auth-paper" elevation={0}>
-        <Typography
-          variant="h5"
-          component="h1"
-          align="center"
-          gutterBottom
-          sx={{
-            fontWeight: 600,
-            color: '#0288D1',
-            mb: 4,
-          }}
-        >
+        <Typography variant="h5" component="h1" align="center" gutterBottom
+          sx={{ fontWeight: 600, color: '#0288D1', mb: 4 }}>
           Регистрация
         </Typography>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
         <TextField
           fullWidth
@@ -79,10 +96,8 @@ export const RegisterPage: React.FC = () => {
           variant="outlined"
           value={login}
           onChange={(e) => setLogin(e.target.value)}
-          sx={{
-            mb: 3,
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-          }}
+          disabled={loading}
+          sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
 
         <TextField
@@ -92,25 +107,19 @@ export const RegisterPage: React.FC = () => {
           variant="outlined"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
           slotProps={{
             input: {
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickShowPassword}
-                    edge="end"
-                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
-                  >
+                  <IconButton onClick={handleClickShowPassword} edge="end">
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
               ),
             },
           }}
-          sx={{
-            mb: 3,
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-          }}
+          sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
 
         <TextField
@@ -120,6 +129,7 @@ export const RegisterPage: React.FC = () => {
           variant="outlined"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
+          disabled={loading}
           error={confirmPassword !== '' && password !== confirmPassword}
           helperText={
             confirmPassword !== '' && password !== confirmPassword
@@ -130,45 +140,32 @@ export const RegisterPage: React.FC = () => {
             input: {
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickShowConfirmPassword}
-                    edge="end"
-                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
-                  >
+                  <IconButton onClick={handleClickShowConfirmPassword} edge="end">
                     {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
               ),
             },
           }}
-          sx={{
-            mb: 4,
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-          }}
+          sx={{ mb: 4, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
 
         <Button
           fullWidth
           variant="contained"
           onClick={handleRegister}
-          disabled={!login || !password || !confirmPassword || password !== confirmPassword}
+          disabled={isDisabled}
           sx={{
             backgroundColor: '#08dad0',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontWeight: 600,
             py: 1.5,
             borderRadius: 2,
             textTransform: 'none',
-            boxShadow: '0 4px 12px rgba(8, 218, 208, 0.3)',
-            '&:hover': {
-              backgroundColor: '#07c4bc',
-              boxShadow: '0 6px 16px rgba(8, 218, 208, 0.4)',
-            },
-            '&:disabled': { backgroundColor: '#B0BEC5', boxShadow: 'none' },
+            fontSize: '16px',
+            fontWeight: 600,
+            '&:hover': { backgroundColor: '#07c4bc' },
           }}
         >
-          Зарегистрироваться
+          {loading ? <CircularProgress size={24} color="inherit" /> : 'Зарегистрироваться'}
         </Button>
       </Paper>
     </Box>
