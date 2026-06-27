@@ -27,7 +27,7 @@ services:
         max-file: "3"
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.14.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: university_elasticsearch
     restart: unless-stopped
     environment:
@@ -82,81 +82,54 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # app:
-  #   build:
-  #     context: ./backend
-  #     dockerfile: Dockerfile
-  #   container_name: university_backend
-  #   restart: unless-stopped
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - DATABASE_URL=${DATABASE_URL}
-  #     - ELASTICSEARCH_URL=${ELASTICSEARCH_URL}
-  #     - REDIS_URL=${REDIS_URL}
-  #     - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB}
-  #     - CHUNK_SIZE=${CHUNK_SIZE}
-  #     - CHUNK_OVERLAP=${CHUNK_OVERLAP}
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - uploads_data:/app/uploads
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     elasticsearch:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: university_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - backend_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # front:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: university_frontend
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3000:80"
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     - app
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-
-  # qa:
-  #   build:
-  #     context: ./tests/e2e
-  #     dockerfile: Dockerfile
-  #   container_name: university_qa_tests
-  #   environment:
-  #     - BASE_URL=http://front:80
-  #     - API_URL=http://app:8000
-  #   networks:
-  #     - backend_network
-  #   depends_on:
-  #     - app
-  #     - front
-  #   profiles:
-  #     - testing
-  #   volumes:
-  #     - ./tests/e2e/results:/app/test-results
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
-
+  front:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL}
+        - VITE_APP_TITLE=${VITE_APP_TITLE}
+    container_name: university_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - backend_network
+    depends_on:
+      - app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
 volumes:
   postgres_data:
     driver: local

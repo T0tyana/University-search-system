@@ -1,4 +1,4 @@
-﻿# Web framework
+# Web framework
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
@@ -27,3 +27,5 @@ bcrypt==4.2.0
 
 # Utils
 uuid6==2024.7.10
+
+psycopg2-binary==2.9.9
