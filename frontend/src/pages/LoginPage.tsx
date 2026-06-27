@@ -9,9 +9,12 @@ import {
   InputAdornment,
   IconButton,
   Box,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { loginApi } from '../api/auth';
 import '../styles/global.css';
 
 export const LoginPage: React.FC = () => {
@@ -20,20 +23,24 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const savedLogin = localStorage.getItem('rememberedLogin');
-    const savedPassword = localStorage.getItem('rememberedPassword');
     if (savedLogin) {
       setLogin(savedLogin);
       setRememberMe(true);
     }
-    if (savedPassword) {
-      setPassword(savedPassword);
-    }
+
+    const savedPassword = localStorage.getItem('rememberedPassword');
+    if (savedPassword) setPassword(savedPassword);
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    setError(null);
+
+    // Запоминаем логин, если нужно
     if (rememberMe) {
       localStorage.setItem('rememberedLogin', login);
       localStorage.setItem('rememberedPassword', password);
@@ -41,14 +48,29 @@ export const LoginPage: React.FC = () => {
       localStorage.removeItem('rememberedLogin');
       localStorage.removeItem('rememberedPassword');
     }
-    navigate('/home');
+
+    setLoading(true);
+    try {
+      const data = await loginApi({ username: login, password });
+      // Сохраняем JWT токен — он будет автоматически подставляться во все запросы
+      localStorage.setItem('access_token', data.access_token);
+      navigate('/home');
+    } catch (err: any) {
+      // axios кладёт ответ сервера в err.response
+      const msg =
+        err?.response?.data?.detail ||
+        err?.response?.data?.msg ||
+        'Неверный логин или пароль';
+      setError(typeof msg === 'string' ? msg : 'Ошибка входа');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleClickShowPassword = () => setShowPassword(!showPassword);
 
   return (
     <Box className="auth-container">
-      {/* Кнопка перехода - возвращаем sx вместо className */}
       <Button
         onClick={() => navigate('/register')}
         sx={{
@@ -64,29 +86,23 @@ export const LoginPage: React.FC = () => {
           fontWeight: 500,
           px: 3,
           py: 1,
-          '&:hover': {
-            backgroundColor: '#E3F2FD',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          },
+          '&:hover': { backgroundColor: '#E3F2FD' },
         }}
       >
         Регистрация
       </Button>
 
       <Paper className="auth-paper" elevation={0}>
-        <Typography
-          variant="h5"
-          component="h1"
-          align="center"
-          gutterBottom
-          sx={{
-            fontWeight: 600,
-            color: '#0288D1',
-            mb: 4,
-          }}
-        >
+        <Typography variant="h5" component="h1" align="center" gutterBottom
+          sx={{ fontWeight: 600, color: '#0288D1', mb: 4 }}>
           Авторизация
         </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
         <TextField
           fullWidth
@@ -94,10 +110,8 @@ export const LoginPage: React.FC = () => {
           variant="outlined"
           value={login}
           onChange={(e) => setLogin(e.target.value)}
-          sx={{
-            mb: 3,
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-          }}
+          disabled={loading}
+          sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
 
         <TextField
@@ -107,25 +121,19 @@ export const LoginPage: React.FC = () => {
           variant="outlined"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
           slotProps={{
             input: {
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton
-                    onClick={handleClickShowPassword}
-                    edge="end"
-                    sx={{ color: '#757575', '&:hover': { color: '#0288D1' } }}
-                  >
+                  <IconButton onClick={handleClickShowPassword} edge="end">
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
               ),
             },
           }}
-          sx={{
-            mb: 2,
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
-          }}
+          sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
 
         <FormControlLabel
@@ -133,42 +141,29 @@ export const LoginPage: React.FC = () => {
             <Checkbox
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              sx={{
-                color: '#9e9e9e',
-                '&.Mui-checked': { color: '#757575' },
-                '& .MuiSvgIcon-root': { opacity: 0.6 },
-              }}
+              disabled={loading}
             />
           }
           label="Запомнить меня"
-          sx={{
-            mb: 4,
-            '& .MuiTypography-root': { fontSize: '14px', color: '#757575' },
-          }}
+          sx={{ mb: 4 }}
         />
 
         <Button
           fullWidth
           variant="contained"
           onClick={handleLogin}
-          disabled={!login || !password}
+          disabled={!login || !password || loading}
           sx={{
             backgroundColor: '#9969f7',
-            color: '#ffffff',
-            fontSize: '16px',
-            fontWeight: 600,
             py: 1.5,
             borderRadius: 2,
             textTransform: 'none',
-            boxShadow: '0 4px 12px rgba(153, 105, 247, 0.3)',
-            '&:hover': {
-              backgroundColor: '#8557e6',
-              boxShadow: '0 6px 16px rgba(153, 105, 247, 0.4)',
-            },
-            '&:disabled': { backgroundColor: '#B0BEC5', boxShadow: 'none' },
+            fontSize: '16px',
+            fontWeight: 600,
+            '&:hover': { backgroundColor: '#8557e6' },
           }}
         >
-          Войти
+          {loading ? <CircularProgress size={24} color="inherit" /> : 'Войти'}
         </Button>
       </Paper>
     </Box>
