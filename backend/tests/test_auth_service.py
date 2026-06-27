@@ -9,6 +9,14 @@ from app.services.auth_service import (
     verify_password,
 )
 
+from unittest.mock import MagicMock
+
+from app.services.auth_service import get_current_user
+
+import pytest
+from fastapi import HTTPException
+
+from fastapi.security import HTTPAuthorizationCredentials
 
 def test_get_password_hash_returns_string():
     password = "Qa123456!"
@@ -150,3 +158,91 @@ def test_password_special_symbols():
     hashed = get_password_hash(password)
 
     assert verify_password(password, hashed)
+def test_get_current_user_success():
+
+    token = create_access_token(
+        {"sub": "qa_user"},
+        expires_delta=timedelta(minutes=5)
+    )
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=token
+    )
+
+    fake_user = MagicMock()
+    fake_user.username = "qa_user"
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = fake_user
+
+    user = get_current_user(credentials, db)
+
+    assert user.username == "qa_user"
+
+def test_get_current_user_not_found():
+
+    token = create_access_token({"sub": "unknown"})
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=token
+    )
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(credentials, db)
+
+    assert exc.value.status_code == 401
+
+def test_get_current_user_invalid_token():
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials="invalid_token"
+    )
+
+    db = MagicMock()
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(credentials, db)
+
+    assert exc.value.status_code == 401
+    
+def test_get_current_user_without_subject():
+
+    token = create_access_token({})
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=token
+    )
+
+    db = MagicMock()
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(credentials, db)
+
+    assert exc.value.status_code == 401
+    
+def test_get_current_user_expired_token():
+
+    token = create_access_token(
+        {"sub": "qa_user"},
+        expires_delta=timedelta(seconds=-1)
+    )
+
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=token
+    )
+
+    db = MagicMock()
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(credentials, db)
+
+    assert exc.value.status_code == 401
+
