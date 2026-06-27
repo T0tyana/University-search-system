@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.api.v1 import documents, auth
 from app.services.elasticsearch_service import create_index, es_client
 from app.models.database import engine, Base
+from prometheus_fastapi_instrumentator import Instrumentator
 import redis
 
 # Настройка логирования
@@ -127,6 +128,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(documents.router, prefix="/api/v1", tags=["documents"])
 
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 @app.get("/", summary="Health Check")
 def read_root():
