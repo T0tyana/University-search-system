@@ -11,7 +11,7 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
   const getStatusColor = (status: UploadedFile['status']) => {
     switch (status) {
       case 'completed':
-        return '#08dad0'; // новый бирюзовый
+        return '#08dad0';
       case 'error':
         return '#EF5350';
       case 'uploading':
@@ -78,7 +78,6 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
       >
         {files.map((file) => (
           <Box key={file.id} sx={{ minWidth: '280px', maxWidth: '280px', flexShrink: 0 }}>
-            {/* Дата сверху - всегда фиксированная высота */}
             <Box sx={{ height: '20px', mb: 0.5 }}>
               {file.uploadedAt && (
                 <Typography
@@ -95,7 +94,6 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
               )}
             </Box>
 
-            {/* Карточка файла */}
             <Box
               sx={{
                 p: 2,
@@ -112,6 +110,7 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
                     fontSize: 28,
                   }}
                 />
+                {/* Добавили явный цвет для названия файла */}
                 <Typography
                   variant="body2"
                   sx={{
@@ -120,6 +119,7 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                     flex: 1,
+                    color: '#212121', // Темный цвет для названия
                   }}
                 >
                   {file.name}
@@ -127,7 +127,6 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
               </Box>
             </Box>
 
-            {/* Полоса прогресса - вне карточки */}
             <Box sx={{ mt: 1, mb: 1 }}>
               {(file.status === 'uploading' || file.status === 'indexing') && (
                 <LinearProgress
@@ -178,7 +177,6 @@ export const FileList: React.FC<FileListProps> = ({ files }) => {
               )}
             </Box>
 
-            {/* Статус снизу */}
             <Typography
               variant="caption"
               sx={{
