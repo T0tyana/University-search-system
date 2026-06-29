@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { loginApi } from '../api/auth';
+import { loginApi } from '../services/auth';
 import '../styles/global.css';
 
 export const LoginPage: React.FC = () => {

@@ -15,10 +15,11 @@ import { SearchBar } from '../components/SearchBar';
 import { DragAndDropZone } from '../components/DragAndDropZone';
 import { FileList } from '../components/FileList';
 import { BackButton } from '../components/BackButton';
-import { apiClient } from '../api/client';
-import { getDocumentsApi, deleteDocumentApi } from '../api/documents';
-import { getSearchHistoryApi } from '../api/search';
+import { apiClient } from '../services/client';
+import { getDocumentsApi, deleteDocumentApi } from '../services/documents';
+import { getSearchHistoryApi } from '../services/search';
 import type { UploadedFile, SearchHistoryItem } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 export const HomePage: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -200,15 +201,14 @@ export const HomePage: React.FC = () => {
     setDeleteDialog({ open: false, fileName: null, fileId: null });
   };
 
-  // Поиск (пока заглушка)
-  const handleSearch = (query: string) => {
-    console.log('Search query (пока не реализовано):', query);
-    setSnackbar({
-      open: true,
-      message: 'Поиск будет добавлен на следующем этапе',
-      severity: 'info',
-    });
-  };
+  // Поиск
+  const navigate = useNavigate();
+const handleSearch = (query: string) => {
+  if (query.trim()) {
+    // Переходим на страницу поиска с query параметром
+    navigate(`/search?query=${encodeURIComponent(query)}`);
+  }
+};
 
   const handleCloseSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
@@ -236,7 +236,7 @@ export const HomePage: React.FC = () => {
         }}
       >
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
-          <Box sx={{ width: '100%', maxWidth: '800px' }}>
+          <Box sx={{ width: '100%', maxWidth: '1100px' }}>
             <SearchBar onSearch={handleSearch} searchHistory={searchHistory} />
           </Box>
         </Box>

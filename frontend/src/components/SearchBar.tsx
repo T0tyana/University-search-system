@@ -6,12 +6,18 @@ import type { SearchHistoryItem } from '../types';
 interface SearchBarProps {
   onSearch: (query: string) => void;
   searchHistory: SearchHistoryItem[];
+  initialQuery?: string; // <-- Добавляем этот пропс
 }
 
-export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, searchHistory }) => {
-  const [query, setQuery] = useState('');
+export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, searchHistory, initialQuery = '' }) => {
+  const [query, setQuery] = useState(initialQuery);
   const [isFocused, setIsFocused] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Синхронизируем локальный стейт с пропсом initialQuery
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -28,7 +34,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, searchHistory })
     e.preventDefault();
     if (query.trim()) {
       onSearch(query.trim());
-      setQuery('');
+      // setQuery(''); // Убираем очистку, чтобы запрос оставался в поле
       setIsFocused(false);
     }
   };
@@ -68,22 +74,22 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, searchHistory })
       </Paper>
 
       {isFocused && (
-        <Paper
-          sx={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            width: '33%',
-            mt: 1,
-            maxHeight: '300px',
-            overflow: 'auto',
-            zIndex: 1000,
-            backgroundColor: 'rgba(200, 200, 200, 0.3)',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-            borderRadius: '8px',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
+          <Paper
+            sx={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              width: '33%',          
+              mt: 1,
+              maxHeight: '300px',
+              overflow: 'auto',
+              zIndex: 1000,
+              backgroundColor: 'rgba(200, 200, 200, 0.3)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              borderRadius: '8px',
+              backdropFilter: 'blur(10px)',
+            }}
+          >
           {searchHistory.length > 0 ? (
             <List sx={{ py: 0 }}>
               {searchHistory.map((item) => (
@@ -94,7 +100,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onSearch, searchHistory })
                     py: 1,
                     px: 2,
                     '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
                     },
                   }}
                 >
