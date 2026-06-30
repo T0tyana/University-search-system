@@ -24,6 +24,7 @@ export interface SearchResult {
   page: number;
   text: string;
   score: number;
+  highlighted_text: string[];
 }
 
 // 
@@ -40,12 +41,8 @@ export const searchApi = async (
   query: string, 
   page: number = 1, 
   size: number = 10, 
-  fileName?: string // Опциональный фильтр, пока не используем в UI
 ): Promise<SearchResponse> => {
   const params: any = { q: query, page, size };
-  if (fileName) {
-    params.file_name = fileName;
-  }
   
   const response = await apiClient.get<SearchResponse>('/api/v1/search', { params });
   return response.data;
