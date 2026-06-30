@@ -13,14 +13,13 @@ from app.services.elasticsearch_service import (
 from app.models.schemas import (
     UploadResponse, SearchResponse, SearchResult, 
     DocumentListResponse, DocumentInfo, SearchHistoryResponse, 
-    ConflictResponse, DeleteResponse
+    SearchHistoryItem, ConflictResponse, DeleteResponse
 )
 from app.core.config import settings
 from app.services.document_processor import process_document
 from app.services.auth_service import get_current_user
 from app.models.user import User
 from app.services.elasticsearch_service import search_documents
-from app.models.schemas import SearchResponse
 import json
 
 logger = logging.getLogger(__name__)
@@ -174,6 +173,104 @@ async def upload_document(
     
     return UploadResponse(file_id=file_id, file_name=file.filename, status="indexed")
 
+
+@router.get(
+    "/documents",
+    response_model=DocumentListResponse,
+    summary="Список всех документов",
+    responses={
+        200: {"description": "Список документов успешно получен"},
+        401: {"description": "Требуется авторизация"},
+        500: {"description": "Внутренняя ошибка сервера / Elasticsearch недоступен"},
+    }
+)
+async def list_documents(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Возвращает список всех загруженных документов в системе.
+    Требует авторизации.
+    """
+    try:
+        files = get_all_documents()
+        documents = [DocumentInfo(file_name=f) for f in files]
+        return DocumentListResponse(documents=documents)
+    except ValueError as e:
+        logger.error(f"Error listing documents: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+@router.delete(
+    "/documents/{file_name:path}",
+    response_model=DeleteResponse,
+    summary="Удаление документа",
+    responses={
+        200: {"description": "Документ успешно удалён"},
+        401: {"description": "Требуется авторизация"},
+        404: {"description": "Документ не найден в системе"},
+        500: {"description": "Внутренняя ошибка сервера"},
+    }
+)
+async def delete_document(
+    file_name: str,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Удаляет документ из Elasticsearch и физический файл с диска.
+    Требует авторизации.
+    """
+    # 1. Проверяем, существует ли документ в Elasticsearch
+    file_id = get_file_id_by_name(file_name)
+    if not file_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Документ '{file_name}' не найден в системе"
+        )
+    
+    # 2. Удаляем из Elasticsearch
+    try:
+        chunks_deleted = delete_file_by_name(file_name)
+    except ValueError as e:
+        logger.error(f"Error deleting from Elasticsearch: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    
+    # 3. Удаляем физический файл с диска
+    file_removed = False
+    for ext in ALLOWED_EXTENSIONS:
+        file_path = os.path.join(UPLOAD_DIR, f"{file_id}.{ext}")
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                file_removed = True
+                logger.info(f"Deleted physical file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error deleting physical file {file_path}: {e}")
+    
+    # 4. Очищаем кэш поиска, если он был связан с этим файлом
+    if redis_client:
+        try:
+            # Удаляем все ключи кэша (упрощённый вариант — можно точечно)
+            keys = redis_client.keys("search:*")
+            if keys:
+                redis_client.delete(*keys)
+                logger.info(f"Cleared {len(keys)} search cache keys")
+        except Exception as e:
+            logger.warning(f"Error clearing cache: {e}")
+    
+    return DeleteResponse(
+        msg="Документ успешно удалён",
+        file_name=file_name,
+        chunks_deleted=chunks_deleted,
+        file_removed_from_disk=file_removed
+    )
+
+
 @router.get(
     "/search",
     response_model=SearchResponse,
@@ -251,3 +348,46 @@ async def search(
             logger.warning(f"Failed to save search history: {e}")
     
     return response
+
+
+@router.get(
+    "/search/history",
+    response_model=SearchHistoryResponse,
+    summary="История поиска пользователя",
+    responses={
+        200: {"description": "История успешно получена"},
+        401: {"description": "Требуется авторизация"},
+    }
+)
+async def get_search_history(
+    limit: int = Query(50, ge=1, le=100, description="Количество записей истории"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Возвращает историю поисковых запросов текущего пользователя.
+    Хранятся последние 50 запросов с информацией о найденных файлах.
+    Требует авторизации.
+    """
+    if not redis_client:
+        return SearchHistoryResponse(history=[])
+    
+    try:
+        history_key = f"search_history:{current_user.username}"
+        history_items = redis_client.lrange(history_key, 0, limit - 1)
+        
+        history = []
+        for item in history_items:
+            try:
+                data = json.loads(item)
+                history.append(SearchHistoryItem(**data))
+            except Exception as e:
+                logger.warning(f"Error parsing history item: {e}")
+                continue
+        
+        return SearchHistoryResponse(history=history)
+    except Exception as e:
+        logger.error(f"Error retrieving search history: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка получения истории поиска"
+        )
