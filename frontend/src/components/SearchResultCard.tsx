@@ -18,90 +18,65 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
   highlightedText,
   searchQuery,
 }) => {
-  const highlightMatches = (
-    text: string,
-    query: string
-  ): React.ReactNode => {
+  const highlightMatches = (text: string, query: string): React.ReactNode => {
     if (!query?.trim()) return text;
 
+    // Разбиваем запрос на слова
     const words = query
       .trim()
       .replace(/[().]/g, ' ')
       .split(/\s+/)
-      .filter(Boolean);
+      .filter(w => w.length > 0);
 
     if (!words.length) return text;
 
-    const uniqueWords = [...new Set(words)].sort(
-      (a, b) => b.length - a.length
-    );
+    // Убираем дубликаты и сортируем по длине (сначала длинные)
+    const uniqueWords = [...new Set(words)].sort((a, b) => b.length - a.length);
 
-    const matches: Array<{
-      start: number;
-      end: number;
-      text: string;
-    }> = [];
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let keyIndex = 0;
 
-    uniqueWords.forEach((word) => {
-      const escapedWord = word.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        '\\$&'
-      );
+    // Ищем ВСЕ совпадения как подстроки (без границ слов!)
+    const allMatches: Array<{ start: number; end: number; text: string }> = [];
 
-      const regex = new RegExp(
-        `(^|[^\\p{L}\\p{N}])(${escapedWord})(?=[^\\p{L}\\p{N}]|$)`,
-        'giu'
-      );
-
-      let match: RegExpExecArray | null;
-
+    uniqueWords.forEach(word => {
+      // Экранируем спецсимволы
+      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // 🔥 Ищем как подстроку (без границ слов) - регистронезависимо
+      const regex = new RegExp(escapedWord, 'giu');
+      
+      let match;
       while ((match = regex.exec(text)) !== null) {
-        const prefixLength = match[1]?.length ?? 0;
-
-        const start = match.index + prefixLength;
-        const end = start + match[2].length;
-
-        matches.push({
-          start,
-          end,
-          text: match[2],
+        allMatches.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          text: match[0]
         });
       }
     });
 
-    if (!matches.length) {
-      return text;
-    }
-
-    matches.sort((a, b) => {
-      if (a.start !== b.start) {
-        return a.start - b.start;
-      }
-
-      return b.end - a.end;
+    // Сортируем по позиции и убираем пересечения
+    allMatches.sort((a, b) => a.start - b.start);
+    
+    const filteredMatches = allMatches.filter((match, i, arr) => {
+      if (i === 0) return true;
+      // Пропускаем если пересекается с предыдущим
+      return match.start >= arr[i - 1].end;
     });
 
-    const filteredMatches: typeof matches = [];
-
-    for (const match of matches) {
-      const last = filteredMatches[filteredMatches.length - 1];
-
-      if (!last || match.start >= last.end) {
-        filteredMatches.push(match);
-      }
-    }
-
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    filteredMatches.forEach((match, index) => {
+    // Создаем результат
+    filteredMatches.forEach(match => {
+      // Текст до совпадения
       if (match.start > lastIndex) {
         parts.push(text.slice(lastIndex, match.start));
       }
-
+      
+      // Подсвеченное совпадение
       parts.push(
         <Box
-          key={`highlight-${index}`}
+          key={keyIndex++}
           component="span"
           sx={{
             backgroundColor: '#fff278',
@@ -111,13 +86,14 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
             fontWeight: 500,
           }}
         >
-          {text.slice(match.start, match.end)}
+          {match.text}
         </Box>
       );
-
+      
       lastIndex = match.end;
     });
 
+    // Остаток текста
     if (lastIndex < text.length) {
       parts.push(text.slice(lastIndex));
     }
@@ -125,10 +101,8 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
     return <>{parts}</>;
   };
 
-  const calculateRelevancePercent = (
-    text: string,
-    query: string
-  ): number => {
+  // 🔥 Пересчет релевантности - ищем слова из запроса в тексте
+  const calculateRelevancePercent = (text: string, query: string): number => {
     if (!query.trim()) return 0;
 
     const cleanQuery = query
@@ -138,36 +112,24 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
 
     const queryWords = cleanQuery
       .split(/\s+/)
-      .filter(Boolean);
+      .filter(w => w.length > 0);
 
     if (queryWords.length === 0) return 0;
 
     const textLower = text.toLowerCase();
-
     let foundCount = 0;
 
-    queryWords.forEach((word) => {
-      const escapedWord = word.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        '\\$&'
-      );
-
-      const regex = new RegExp(
-        `(^|[^\\p{L}\\p{N}])${escapedWord}(?=[^\\p{L}\\p{N}]|$)`,
-        'iu'
-      );
-
-      if (regex.test(textLower)) {
+    queryWords.forEach(word => {
+      // 🔥 Ищем как подстроку (без границ слов)
+      if (textLower.includes(word.toLowerCase())) {
         foundCount++;
       }
     });
 
-    return Math.round(
-      (foundCount / queryWords.length) * 100
-    );
+    return Math.round((foundCount / queryWords.length) * 100);
   };
 
-  const displayRelevance = searchQuery
+  const displayRelevance = searchQuery 
     ? calculateRelevancePercent(textFragment, searchQuery)
     : Math.round(relevanceScore);
 
@@ -189,6 +151,7 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
         flexDirection: { xs: 'column', sm: 'row' },
       }}
     >
+      {/* Левая часть */}
       <Box
         sx={{
           width: { xs: '100%', sm: '25%' },
@@ -272,6 +235,7 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
         </Box>
       </Box>
 
+      {/* Правая часть - текст с подсветкой */}
       <Box
         sx={{
           width: { xs: '100%', sm: '75%' },
