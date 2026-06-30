@@ -24,9 +24,17 @@ class SearchResult(BaseModel):
     chunk_id: str = Field(..., description="ID фрагмента текста")
     file_name: str = Field(..., description="Название документа")
     page: int = Field(..., description="Номер страницы в документе", ge=1)
-    text: str = Field(..., description="Найденный фрагмент текста")
+    text: str = Field(..., description="Исходный найденный фрагмент текста")
     score: float = Field(..., description="Оценка релевантности от Elasticsearch", ge=0)
-
+    highlighted_text: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Фрагменты текста с подсветкой совпадений. "
+            "Совпадения обёрнуты в теги <mark>. "
+            "Если подсветка недоступна — null."
+        ),
+        examples=[["...искомый <mark>фрагмент</mark> текста..."]]
+    )
 
 class SearchResponse(BaseModel):
     """Модель ответа эндпоинта поиска."""

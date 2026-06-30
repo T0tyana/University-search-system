@@ -19,6 +19,9 @@ from app.core.config import settings
 from app.services.document_processor import process_document
 from app.services.auth_service import get_current_user
 from app.models.user import User
+from app.services.elasticsearch_service import search_documents
+from app.models.schemas import SearchResponse
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -170,3 +173,81 @@ async def upload_document(
         )
     
     return UploadResponse(file_id=file_id, file_name=file.filename, status="indexed")
+
+@router.get(
+    "/search",
+    response_model=SearchResponse,
+    summary="Полнотекстовый поиск по документам",
+    responses={
+        200: {"description": "Поиск выполнен успешно, возвращены результаты с подсветкой"},
+        400: {"description": "Пустой поисковый запрос"},
+        401: {"description": "Требуется авторизация"},
+        500: {"description": "Внутренняя ошибка сервера / Elasticsearch недоступен"},
+    }
+)
+async def search(
+    q: str = Query(..., min_length=1, description="Поисковый запрос"),
+    page: int = Query(1, ge=1, description="Номер страницы результатов"),
+    size: int = Query(10, ge=1, le=100, description="Количество результатов на странице"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Выполняет полнотекстовый поиск по загруженным документам.
+    
+    Результаты содержат поле `highlighted_text` с фрагментами,
+    в которых совпадения обёрнуты в HTML-теги `<mark>...</mark>`.
+    
+    Частые запросы кэшируются в Redis на 5 минут (BE-10).
+    История поиска сохраняется для текущего пользователя.
+    """
+    cache_key = f"search:{q.strip().lower()}:p{page}:s{size}"
+    
+    # 1. Проверяем кэш Redis
+    if redis_client:
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                logger.info(f"Cache HIT for query: {q}")
+                return SearchResponse(**json.loads(cached))
+        except Exception as e:
+            logger.warning(f"Redis cache read error: {e}")
+    
+    # 2. Выполняем поиск в Elasticsearch
+    try:
+        search_result = search_documents(query=q, page=page, size=size)
+    except ValueError as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    
+    response = SearchResponse(**search_result)
+    
+    # 3. Сохраняем в кэш Redis (TTL = 5 минут)
+    if redis_client:
+        try:
+            redis_client.setex(
+                cache_key,
+                300,  # 5 минут = 300 секунд
+                response.model_dump_json()
+            )
+        except Exception as e:
+            logger.warning(f"Redis cache write error: {e}")
+    
+    # 4. Сохраняем запрос в историю пользователя
+    if redis_client:
+        try:
+            history_key = f"search_history:{current_user.username}"
+            history_item = {
+                "query": q,
+                "files_found": list({r.file_name for r in response.results}),
+                "total_results": response.total,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            redis_client.lpush(history_key, json.dumps(history_item, ensure_ascii=False))
+            redis_client.ltrim(history_key, 0, 49)  # храним последние 50 запросов
+        except Exception as e:
+            logger.warning(f"Failed to save search history: {e}")
+    
+    return response

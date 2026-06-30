@@ -275,3 +275,87 @@ def get_all_documents() -> list[str]:
     except Exception as e:
         logger.error(f"Error getting document list: {e}", exc_info=True)
         raise ValueError(f"Ошибка получения списка документов: {str(e)}")
+    
+def search_documents(query: str, page: int = 1, size: int = 10) -> dict:
+    """
+    Выполняет полнотекстовый поиск с подсветкой совпадений.
+    
+    Args:
+        query: Поисковый запрос.
+        page: Номер страницы (начинается с 1).
+        size: Количество результатов на странице.
+        
+    Returns:
+        Словарь с результатами поиска и метаданными.
+        
+    Raises:
+        ValueError: Если Elasticsearch недоступен.
+    """
+    if es_client is None:
+        raise ValueError("Elasticsearch client is not initialized")
+    
+    from_offset = (page - 1) * size
+    
+    search_body = {
+        "from": from_offset,
+        "size": size,
+        "query": {
+            "multi_match": {
+                "query": query,
+                "fields": ["text"],
+                "type": "best_fields",
+                "fuzziness": "AUTO"  # защита от опечаток
+            }
+        },
+        # 🔑 КЛЮЧЕВАЯ ЧАСТЬ — настройка подсветки
+        "highlight": {
+            "pre_tags": ["<mark>"],     # открывающий тег подсветки
+            "post_tags": ["</mark>"],   # закрывающий тег подсветки
+            "fields": {
+                "text": {
+                    "fragment_size": 200,      # длина фрагмента в символах
+                    "number_of_fragments": 3,  # максимум фрагментов на документ
+                    "boundary_scanner": "sentence"  # резать по предложениям
+                }
+            }
+        }
+    }
+    
+    try:
+        response = es_client.search(index=INDEX_NAME, body=search_body)
+    except ConnectionError as e:
+        logger.error(f"Elasticsearch connection error during search: {e}")
+        raise ValueError("Ошибка подключения к Elasticsearch")
+    except Exception as e:
+        logger.error(f"Search error: {e}", exc_info=True)
+        raise ValueError(f"Ошибка поиска: {str(e)}")
+    
+    total = response['hits']['total']['value']
+    results = []
+    
+    for hit in response['hits']['hits']:
+        source = hit['_source']
+        score = hit.get('_score', 0) or 0
+        
+        # Elasticsearch возвращает подсветку в отдельном поле highlight
+        highlight_fragments = hit.get('highlight', {}).get('text', [])
+        
+        results.append({
+            "chunk_id": source.get('chunk_id', ''),
+            "file_name": source.get('file_name', ''),
+            "page": source.get('page_number', 1),
+            "text": source.get('text', ''),
+            "score": round(score, 4),
+            # Если подсветки нет (маловероятно при совпадении), отдаём None
+            "highlighted_text": highlight_fragments if highlight_fragments else None
+        })
+    
+    logger.info(f"Search query='{query}': found {total} results, returned {len(results)}")
+    
+    return {
+        "query": query,
+        "results": results,
+        "total": total,
+        "page": page,
+        "size": size
+    }
