@@ -6,8 +6,8 @@ interface SearchResultCardProps {
   pageNumber: number;
   relevanceScore: number;
   textFragment: string;
-  highlightedText?: string; // Текст с уже размеченными совпадениями
-  searchQuery?: string; // Если нужно подсвечивать автоматически
+  highlightedText?: string;
+  searchQuery?: string;
 }
 
 export const SearchResultCard: React.FC<SearchResultCardProps> = ({
@@ -18,33 +18,158 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
   highlightedText,
   searchQuery,
 }) => {
-  // Функция для подсветки совпадений, если не передан готовый highlightedText
-  const highlightMatches = (text: string, query: string) => {
-    if (!query.trim()) return text;
+  const highlightMatches = (
+    text: string,
+    query: string
+  ): React.ReactNode => {
+    if (!query?.trim()) return text;
 
-    const regex = new RegExp(`(${query.trim()})`, 'gi');
-    const parts = text.split(regex);
+    const words = query
+      .trim()
+      .replace(/[().]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
 
-    return parts.map((part, index) =>
-      regex.test(part) ? (
+    if (!words.length) return text;
+
+    const uniqueWords = [...new Set(words)].sort(
+      (a, b) => b.length - a.length
+    );
+
+    const matches: Array<{
+      start: number;
+      end: number;
+      text: string;
+    }> = [];
+
+    uniqueWords.forEach((word) => {
+      const escapedWord = word.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&'
+      );
+
+      const regex = new RegExp(
+        `(^|[^\\p{L}\\p{N}])(${escapedWord})(?=[^\\p{L}\\p{N}]|$)`,
+        'giu'
+      );
+
+      let match: RegExpExecArray | null;
+
+      while ((match = regex.exec(text)) !== null) {
+        const prefixLength = match[1]?.length ?? 0;
+
+        const start = match.index + prefixLength;
+        const end = start + match[2].length;
+
+        matches.push({
+          start,
+          end,
+          text: match[2],
+        });
+      }
+    });
+
+    if (!matches.length) {
+      return text;
+    }
+
+    matches.sort((a, b) => {
+      if (a.start !== b.start) {
+        return a.start - b.start;
+      }
+
+      return b.end - a.end;
+    });
+
+    const filteredMatches: typeof matches = [];
+
+    for (const match of matches) {
+      const last = filteredMatches[filteredMatches.length - 1];
+
+      if (!last || match.start >= last.end) {
+        filteredMatches.push(match);
+      }
+    }
+
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    filteredMatches.forEach((match, index) => {
+      if (match.start > lastIndex) {
+        parts.push(text.slice(lastIndex, match.start));
+      }
+
+      parts.push(
         <Box
-          key={index}
+          key={`highlight-${index}`}
           component="span"
           sx={{
-            backgroundColor: '#fff278', 
+            backgroundColor: '#fff278',
             color: '#000000',
             padding: '0 2px',
             borderRadius: '2px',
             fontWeight: 500,
           }}
         >
-          {part}
+          {text.slice(match.start, match.end)}
         </Box>
-      ) : (
-        part
-      )
+      );
+
+      lastIndex = match.end;
+    });
+
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+
+    return <>{parts}</>;
+  };
+
+  const calculateRelevancePercent = (
+    text: string,
+    query: string
+  ): number => {
+    if (!query.trim()) return 0;
+
+    const cleanQuery = query
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\sа-яА-ЯёЁ0-9]/g, ' ');
+
+    const queryWords = cleanQuery
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (queryWords.length === 0) return 0;
+
+    const textLower = text.toLowerCase();
+
+    let foundCount = 0;
+
+    queryWords.forEach((word) => {
+      const escapedWord = word.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&'
+      );
+
+      const regex = new RegExp(
+        `(^|[^\\p{L}\\p{N}])${escapedWord}(?=[^\\p{L}\\p{N}]|$)`,
+        'iu'
+      );
+
+      if (regex.test(textLower)) {
+        foundCount++;
+      }
+    });
+
+    return Math.round(
+      (foundCount / queryWords.length) * 100
     );
   };
+
+  const displayRelevance = searchQuery
+    ? calculateRelevancePercent(textFragment, searchQuery)
+    : Math.round(relevanceScore);
 
   return (
     <Paper
@@ -61,11 +186,9 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
         '&:hover': {
           boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
         },
-        // Адаптивность
         flexDirection: { xs: 'column', sm: 'row' },
       }}
     >
-      {/* Левая часть - информация (1/4 ширины) */}
       <Box
         sx={{
           width: { xs: '100%', sm: '25%' },
@@ -75,14 +198,7 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
           flexShrink: 0,
         }}
       >
-        {/* Название файла */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-          }}
-        >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Typography
             variant="body2"
             sx={{
@@ -99,7 +215,6 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
           </Typography>
         </Box>
 
-        {/* Номер страницы */}
         <Typography
           variant="caption"
           sx={{
@@ -110,7 +225,6 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
           Страница {pageNumber}
         </Typography>
 
-        {/* Оценка релевантности */}
         <Box
           sx={{
             display: 'flex',
@@ -130,14 +244,20 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
           >
             <Box
               sx={{
-                width: `${relevanceScore}%`,
+                width: `${displayRelevance}%`,
                 height: '100%',
-                backgroundColor: relevanceScore >= 70 ? '#a3ffa6' : relevanceScore >= 40 ? '#fed290' : '#ffaaa3',
+                backgroundColor:
+                  displayRelevance >= 70
+                    ? '#a3ffa6'
+                    : displayRelevance >= 40
+                    ? '#fed290'
+                    : '#ffaaa3',
                 borderRadius: '3px',
                 transition: 'width 0.3s ease',
               }}
             />
           </Box>
+
           <Typography
             variant="caption"
             sx={{
@@ -147,12 +267,11 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
               fontSize: { xs: '10px', sm: '12px' },
             }}
           >
-            {relevanceScore}%
+            {displayRelevance}%
           </Typography>
         </Box>
       </Box>
 
-      {/* Правая часть - фрагмент текста (3/4 ширины) */}
       <Box
         sx={{
           width: { xs: '100%', sm: '75%' },

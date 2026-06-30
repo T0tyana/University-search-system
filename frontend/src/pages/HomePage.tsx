@@ -68,6 +68,26 @@ export const HomePage: React.FC = () => {
     fetchData();
   }, []);
 
+  // 🔥 Функция анимации индексации
+  const animateIndexing = async (fileId: string) => {
+    // Анимируем прогресс от 0% до 100%
+    const totalDuration = 2000; // 2 секунды на всю анимацию
+    const steps = 20; // 20 шагов
+    const stepDuration = totalDuration / steps;
+    const stepProgress = 100 / steps;
+
+    for (let i = 1; i <= steps; i++) {
+      await new Promise(resolve => setTimeout(resolve, stepDuration));
+      setUploadedFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId 
+            ? { ...f, progress: Math.min(i * stepProgress, 100) }
+            : f
+        )
+      );
+    }
+  };
+
   // Загрузка файлов
   const handleFilesDrop = async (files: File[]) => {
     const newFiles: UploadedFile[] = files.map((file) => ({
@@ -88,6 +108,7 @@ export const HomePage: React.FC = () => {
         const formData = new FormData();
         formData.append('file', fileObj);
 
+        // 1️⃣ ЭТАП ЗАГРУЗКИ (синий прогресс-бар)
         await apiClient.post('/api/v1/documents/upload', formData, {
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
@@ -96,33 +117,67 @@ export const HomePage: React.FC = () => {
               );
               setUploadedFiles((prev) =>
                 prev.map((f) =>
-                  f.id === fileId ? { ...f, progress: percentCompleted, status: 'uploading' } : f
+                  f.id === fileId 
+                    ? { ...f, progress: percentCompleted, status: 'uploading' } 
+                    : f
                 )
               );
             }
           },
         });
 
-        // Успешная загрузка
+        // 2️⃣ ПЕРЕХОД К ИНДЕКСАЦИИ (фиолетовый прогресс-бар)
         setUploadedFiles((prev) =>
           prev.map((f) =>
             f.id === fileId
-              ? { ...f, status: 'completed', progress: 100, uploadedAt: new Date() }
+              ? { ...f, status: 'indexing', progress: 0, uploadedAt: new Date() }
               : f
           )
         );
+
+        // 🔥 ЗАПУСКАЕМ АНИМАЦИЮ ИНДЕКСАЦИИ
+        await animateIndexing(fileId);
+
+        // 3️⃣ ПОЛУЧАЕМ АКТУАЛЬНЫЙ СПИСОК ДОКУМЕНТОВ
+        try {
+          const docsRes = await getDocumentsApi();
+          const updatedFile = docsRes.documents.find(d => d.file_name === fileObj.name);
+          
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId && updatedFile
+                ? { 
+                    ...f, 
+                    status: 'completed', 
+                    progress: 100, 
+                    uploadedAt: updatedFile.upload_date 
+                  }
+                : f.id === fileId
+                ? { ...f, status: 'completed', progress: 100, uploadedAt: new Date() }
+                : f
+            )
+          );
+        } catch (err) {
+          console.error('Error fetching documents:', err);
+          setUploadedFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId 
+                ? { ...f, status: 'completed', progress: 100, uploadedAt: new Date() } 
+                : f
+            )
+          );
+        }
+
         setSnackbar({
           open: true,
-          message: `Файл ${fileObj.name} успешно загружен`,
+          message: `Файл ${fileObj.name} успешно загружен и проиндексирован`,
           severity: 'success',
         });
+
       } catch (error: any) {
         console.error('Upload failed:', error);
+        const errMsg = error.response?.data?.detail || 'Ошибка загрузки файла';
 
-        const errMsg =
-          error.response?.data?.detail || 'Ошибка загрузки файла';
-
-        // ВСЕГДА оставляем файл в списке со статусом 'error'
         setUploadedFiles((prev) =>
           prev.map((f) =>
             f.id === fileId ? { ...f, status: 'error', progress: 100 } : f
@@ -141,7 +196,6 @@ export const HomePage: React.FC = () => {
   // Обработка клика на удаление
   const handleDeleteClick = (fileName: string, fileId: string, needsApiCall: boolean) => {
     if (!needsApiCall) {
-      // Файл с ошибкой — удаляем по ID сразу без диалога и API
       setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
       setSnackbar({
         open: true,
@@ -151,7 +205,6 @@ export const HomePage: React.FC = () => {
       return;
     }
 
-    // Файл загружен — показываем диалог подтверждения
     setDeleteDialog({ open: true, fileName, fileId });
   };
 
@@ -163,7 +216,6 @@ export const HomePage: React.FC = () => {
 
     setDeleteDialog({ open: false, fileName: null, fileId: null });
 
-    // Переводим файл в статус "удаляется" по ID
     setUploadedFiles((prev) =>
       prev.map((f) => (f.id === fileId ? { ...f, status: 'deleting', progress: 100 } : f))
     );
@@ -171,7 +223,6 @@ export const HomePage: React.FC = () => {
     try {
       await deleteDocumentApi(fileName);
 
-      // Успешно удалили — убираем из списка по ID
       setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
       setSnackbar({
         open: true,
@@ -181,7 +232,6 @@ export const HomePage: React.FC = () => {
     } catch (error: any) {
       console.error('Delete failed:', error);
 
-      // Возвращаем файл в предыдущий статус по ID
       setUploadedFiles((prev) =>
         prev.map((f) =>
           f.id === fileId ? { ...f, status: 'completed', progress: 100 } : f
@@ -196,19 +246,16 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  // Отмена удаления
   const handleDeleteCancel = () => {
     setDeleteDialog({ open: false, fileName: null, fileId: null });
   };
 
-  // Поиск
   const navigate = useNavigate();
-const handleSearch = (query: string) => {
-  if (query.trim()) {
-    // Переходим на страницу поиска с query параметром
-    navigate(`/search?query=${encodeURIComponent(query)}`);
-  }
-};
+  const handleSearch = (query: string) => {
+    if (query.trim()) {
+      navigate(`/search?query=${encodeURIComponent(query)}`);
+    }
+  };
 
   const handleCloseSnackbar = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
@@ -303,7 +350,6 @@ const handleSearch = (query: string) => {
         </DialogActions>
       </Dialog>
 
-      {/* Уведомления */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}

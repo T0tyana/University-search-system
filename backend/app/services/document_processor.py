@@ -101,24 +101,31 @@ def split_text_into_chunks(text: str, chunk_size: int = None, overlap: int = Non
     chunk_size = chunk_size or settings.CHUNK_SIZE
     overlap = overlap or settings.CHUNK_OVERLAP
     
-    # Валидация параметров
+    # 1. Базовая валидация
     if chunk_size <= 0:
         raise ValueError("Размер чанка должен быть больше 0")
     if overlap < 0:
         raise ValueError("Перекрытие не может быть отрицательным")
-    if overlap >= chunk_size:
-        raise ValueError("Перекрытие должно быть меньше размера чанка")
+    
+    # 2. КРИТИЧЕСКАЯ ПРОВЕРКА: вычисляем шаг итерации
+    step = chunk_size - overlap
+    if step <= 0:
+        raise ValueError(
+            f"Неверные параметры чанкинга: шаг (chunk_size {chunk_size} - overlap {overlap} = {step}) "
+            f"должен быть строго больше 0. Иначе возникнет бесконечный цикл."
+        )
     
     chunks = []
     start = 0
     text_len = len(text)
     
+    # 3. Сам цикл теперь использует предвычисленный step
     while start < text_len:
         end = start + chunk_size
         chunk = text[start:end]
         if chunk.strip():
             chunks.append(chunk)
-        start += (chunk_size - overlap)
+        start += step
     
     return chunks
 

@@ -12,22 +12,18 @@ import AttachFileIcon from '@mui/icons-material/AttachFile';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SearchBar } from '../components/SearchBar';
 import { SearchResultCard } from '../components/SearchResultCard';
+import { searchApi, getSearchHistoryApi } from '../services/search';
 import type { SearchHistoryItem } from '../types';
+import type { SearchResult as ApiSearchResult } from '../services/search';
 
-interface SearchResult {
-  id: string;
-  chunk_id: string;
-  file_name: string;
-  page: number;
-  text: string;
-  score: number;
+interface SearchResult extends ApiSearchResult {
+  id: string; 
 }
 
 export const SearchResultsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // ✅ ЧИТАЕМ QUERY ИЗ URL СРАЗУ ПРИ ИНИЦИАЛИЗАЦИИ
   const getInitialQueryFromUrl = () => {
     const params = new URLSearchParams(location.search);
     const queryFromUrl = params.get('query');
@@ -49,77 +45,73 @@ export const SearchResultsPage: React.FC = () => {
 
   const observerTarget = useRef<HTMLDivElement>(null);
 
-  // Инициализация истории поиска
+  // Загружаем историю поиска
   useEffect(() => {
-    const mockHistory: SearchHistoryItem[] = [
-      { 
-        id: '1', 
-        query: 'машинное обучение', 
-        timestamp: new Date().toISOString(), 
-        files_found: ['lecture_ml.pdf', 'ai_intro.pdf'],
-        total_results: 15 
-      },
-      { 
-        id: '2', 
-        query: 'базы данных', 
-        timestamp: new Date().toISOString(), 
-        files_found: ['db_lecture.pdf'],
-        total_results: 8 
-      },
-    ];
-    setSearchHistory(mockHistory);
+    const fetchHistory = async () => {
+      try {
+        const res = await getSearchHistoryApi();
+        const history: SearchHistoryItem[] = res.history.map((h) => ({
+          id: h.query + h.timestamp,
+          query: h.query,
+          timestamp: h.timestamp,
+          files_found: h.files_found,
+          total_results: h.total_results,
+        }));
+        setSearchHistory(history);
+      } catch (error) {
+        console.error('Error fetching history:', error);
+      }
+    };
+    fetchHistory();
   }, []);
 
   // Функция поиска
   const performSearch = useCallback(async (query: string, pageNum: number) => {
+    if (!query.trim()) return;
     setLoading(true);
+    
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const response = await searchApi(query, pageNum, 10); 
       
-      const mockResults: SearchResult[] = Array.from({ length: 10 }, (_, i) => ({
-        id: `${pageNum}-${i}`,
-        chunk_id: `chunk_${i}`,
-        file_name: `document_${pageNum}_${i}.pdf`,
-        page: Math.floor(Math.random() * 20) + 1,
-        text: `Это пример текста из документа. Здесь содержится информация о "${query}". 
-               Данный фрагмент демонстрирует, как будет выглядеть результат поиска в системе. 
-               Система нашла это совпадение в контексте учебного материала.`,
-        score: Math.floor(Math.random() * 40) + 60,
+      const newResults: SearchResult[] = response.results.map(r => ({
+        ...r,
+        id: `${r.chunk_id}-${pageNum}`
       }));
 
-      setResults(prev => pageNum === 1 ? mockResults : [...prev, ...mockResults]);
-      setHasMore(pageNum < 5);
-    } catch (error) {
+      setResults(prev => pageNum === 1 ? newResults : [...prev, ...newResults]);
+      
+      // Проверяем, есть ли еще результаты
+      setHasMore((pageNum * 10) < response.total);
+      
+    } catch (error: any) {
       console.error('Search error:', error);
-      setSnackbar({ open: true, message: 'Ошибка при выполнении поиска', severity: 'error' });
+      const errMsg = error.response?.data?.detail || 'Ошибка при выполнении поиска';
+      setSnackbar({ open: true, message: errMsg, severity: 'error' });
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // ✅ ТЕПЕРЬ USE EFFECT ТОЛЬКО ДЛЯ ЗАПУСКА ПОИСКА
-  useEffect(() => {
-    if (searchQuery) {
-      performSearch(searchQuery, 1);
-    }
-  }, [searchQuery, performSearch]);
-
-  // Отслеживание изменений URL (если пользователь меняет URL вручную)
+  // Реагируем на изменение URL
   useEffect(() => {
     const queryFromUrl = getInitialQueryFromUrl();
-    if (queryFromUrl && queryFromUrl !== searchQuery) {
+    if (queryFromUrl) {
       setSearchQuery(queryFromUrl);
+      setPage(1);
+      setResults([]);
+      performSearch(queryFromUrl, 1);
     }
-  }, [location.search]);
+  }, [location.search, performSearch]);
 
+  // Обработчик нового поиска
   const handleSearch = (query: string) => {
     if (!query.trim()) return;
     
-    setSearchQuery(query);
     setResults([]);
     setPage(1);
     setHasMore(true);
-    // performSearch вызывается в useEffect при изменении searchQuery
+    
     navigate(`/search?query=${encodeURIComponent(query)}`, { replace: true });
   };
 
@@ -143,13 +135,8 @@ export const SearchResultsPage: React.FC = () => {
     return () => observer.disconnect();
   }, [page, hasMore, loading, searchQuery, performSearch]);
 
-  const handleUploadClick = () => {
-    navigate('/home');
-  };
-
-  const handleCloseSnackbar = () => {
-    setSnackbar(prev => ({ ...prev, open: false }));
-  };
+  const handleUploadClick = () => navigate('/home');
+  const handleCloseSnackbar = () => setSnackbar(prev => ({ ...prev, open: false }));
 
   return (
     <Box
@@ -196,7 +183,6 @@ export const SearchResultsPage: React.FC = () => {
       >
         <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', maxWidth: '1100px' }}>
-            {/* ✅ ТЕПЕРЬ initialQuery сразу содержит значение из URL */}
             <SearchBar 
               key={searchQuery}
               onSearch={handleSearch} 
