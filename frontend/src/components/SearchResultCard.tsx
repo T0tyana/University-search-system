@@ -6,7 +6,7 @@ interface SearchResultCardProps {
   pageNumber: number;
   relevanceScore: number;
   textFragment: string;
-  highlightedText?: string;
+  highlightedText?: string[]; // 🔥 Теперь это массив строк от бэкенда
   searchQuery?: string;
 }
 
@@ -18,10 +18,26 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
   highlightedText,
   searchQuery,
 }) => {
+  // Функция для рендеринга highlighted_text от бэкенда
+  // Бэкенд возвращает массив фрагментов с тегами <mark>...</mark>
+  const renderHighlightedText = (highlights: string[]): React.ReactNode => {
+    // Объединяем все фрагменты через "..." (как это обычно делают поисковики)
+    const combinedText = highlights.join(' ... ');
+
+    // Заменяем <mark> и </mark> на стилизованные span'ы
+    const styledHtml = combinedText
+      .replace(/<mark>/gi, '<span style="background-color:#fff278;color:#000000;padding:0 2px;border-radius:2px;font-weight:500;">')
+      .replace(/<\/mark>/gi, '</span>');
+
+    return (
+      <span dangerouslySetInnerHTML={{ __html: styledHtml }} />
+    );
+  };
+
+  // Фолбэк: если бэкенд не вернул highlighted_text, используем старую подсветку
   const highlightMatches = (text: string, query: string): React.ReactNode => {
     if (!query?.trim()) return text;
 
-    // Разбиваем запрос на слова
     const words = query
       .trim()
       .replace(/[().]/g, ' ')
@@ -30,23 +46,16 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
 
     if (!words.length) return text;
 
-    // Убираем дубликаты и сортируем по длине (сначала длинные)
     const uniqueWords = [...new Set(words)].sort((a, b) => b.length - a.length);
-
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let keyIndex = 0;
 
-    // Ищем ВСЕ совпадения как подстроки (без границ слов!)
     const allMatches: Array<{ start: number; end: number; text: string }> = [];
 
     uniqueWords.forEach(word => {
-      // Экранируем спецсимволы
       const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      
-      // 🔥 Ищем как подстроку (без границ слов) - регистронезависимо
       const regex = new RegExp(escapedWord, 'giu');
-      
       let match;
       while ((match = regex.exec(text)) !== null) {
         allMatches.push({
@@ -57,23 +66,16 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
       }
     });
 
-    // Сортируем по позиции и убираем пересечения
     allMatches.sort((a, b) => a.start - b.start);
-    
     const filteredMatches = allMatches.filter((match, i, arr) => {
       if (i === 0) return true;
-      // Пропускаем если пересекается с предыдущим
       return match.start >= arr[i - 1].end;
     });
 
-    // Создаем результат
     filteredMatches.forEach(match => {
-      // Текст до совпадения
       if (match.start > lastIndex) {
         parts.push(text.slice(lastIndex, match.start));
       }
-      
-      // Подсвеченное совпадение
       parts.push(
         <Box
           key={keyIndex++}
@@ -89,11 +91,9 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
           {match.text}
         </Box>
       );
-      
       lastIndex = match.end;
     });
 
-    // Остаток текста
     if (lastIndex < text.length) {
       parts.push(text.slice(lastIndex));
     }
@@ -101,7 +101,7 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
     return <>{parts}</>;
   };
 
-  // 🔥 Пересчет релевантности - ищем слова из запроса в тексте
+  // Расчет релевантности (процент найденных слов из запроса)
   const calculateRelevancePercent = (text: string, query: string): number => {
     if (!query.trim()) return 0;
 
@@ -110,17 +110,13 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
       .toLowerCase()
       .replace(/[^\w\sа-яА-ЯёЁ0-9]/g, ' ');
 
-    const queryWords = cleanQuery
-      .split(/\s+/)
-      .filter(w => w.length > 0);
-
+    const queryWords = cleanQuery.split(/\s+/).filter(w => w.length > 0);
     if (queryWords.length === 0) return 0;
 
     const textLower = text.toLowerCase();
     let foundCount = 0;
 
     queryWords.forEach(word => {
-      // 🔥 Ищем как подстроку (без границ слов)
       if (textLower.includes(word.toLowerCase())) {
         foundCount++;
       }
@@ -129,7 +125,7 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
     return Math.round((foundCount / queryWords.length) * 100);
   };
 
-  const displayRelevance = searchQuery 
+  const displayRelevance = searchQuery
     ? calculateRelevancePercent(textFragment, searchQuery)
     : Math.round(relevanceScore);
 
@@ -251,8 +247,9 @@ export const SearchResultCard: React.FC<SearchResultCardProps> = ({
             textAlign: 'justify',
           }}
         >
-          {highlightedText ? (
-            <span dangerouslySetInnerHTML={{ __html: highlightedText }} />
+          {/* highlighted_text от бэкенда > ручная подсветка > обычный текст */}
+          {highlightedText && highlightedText.length > 0 ? (
+            renderHighlightedText(highlightedText)
           ) : searchQuery ? (
             highlightMatches(textFragment, searchQuery)
           ) : (
